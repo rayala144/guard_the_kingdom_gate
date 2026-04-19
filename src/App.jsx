@@ -524,7 +524,7 @@ export default function TowerDefense() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []); // eslint-disable-line
+  }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
   //  CANVAS EVENTS
@@ -629,6 +629,8 @@ export default function TowerDefense() {
   // ──────────────────────────────────────────────────────────────────────────
   //  DERIVED UI VALUES
   // ──────────────────────────────────────────────────────────────────────────
+  // Game state lives in a ref updated by the RAF loop; this read only maps selection → panel props.
+  // eslint-disable-next-line react-hooks/refs -- intentional: imperative loop + syncUi() drives UI updates
   const selTwr  = sel?.kind==="tower" ? gs.current?.towers.find(t=>t.id===sel.id) : null;
   const selDef  = selTwr ? TOWERS[selTwr.type] : null;
   const selSt   = selTwr ? selDef.levels[selTwr.lvl] : null;
