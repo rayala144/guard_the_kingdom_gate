@@ -108,6 +108,7 @@ function buildWave(n) {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function TowerDefense() {
   const cvs       = useRef(null);
+  const wrapRef   = useRef(null);   // canvas wrapper, measured for responsive sizing
   const gs        = useRef(null);   // live game state (mutated in RAF loop)
   const rafId     = useRef(null);
   const lastTs    = useRef(0);
@@ -115,6 +116,7 @@ export default function TowerDefense() {
   const hoverCell = useRef(null);
   const selRef    = useRef(null);   // mirrors React sel state for use in RAF
   const flashRef  = useRef(0);      // wave-start flash timer
+  const scaleRef  = useRef(1);      // device-pixel scale factor for crisp, responsive rendering
 
   // React state – only for UI re-renders
   const [sel, _setSel]    = useState(null);
@@ -294,6 +296,10 @@ export default function TowerDefense() {
   function render(canvas, g) {
     if (!canvas || !g) return;
     const ctx = canvas.getContext("2d");
+    // Backing store may be larger than the logical CW×CH grid (responsive width
+    // + devicePixelRatio upscaling) — scale so all existing draw calls, which
+    // are written in logical CELL/CW/CH units, land on crisp physical pixels.
+    ctx.setTransform(scaleRef.current, 0, 0, scaleRef.current, 0, 0);
     ctx.clearRect(0, 0, CW, CH);
 
     // ── Background ──
@@ -497,6 +503,42 @@ export default function TowerDefense() {
     initGame();
     syncUi();
 
+    // ── Responsive, high-DPI canvas sizing ──
+    // Renders the fixed CW×CH logical grid onto a backing store sized to the
+    // wrapper's actual on-screen width × devicePixelRatio, so the board
+    // stretches edge-to-edge with no leftover gap and stays sharp at any size.
+    function resizeCanvas() {
+      const wrap = wrapRef.current;
+      const canvas = cvs.current;
+      if (!wrap || !canvas) return;
+      const aspect = CW / CH;
+      const availW = Math.max(1, wrap.clientWidth);
+      const availH = Math.max(1, wrap.clientHeight);
+      // Fit the board into whatever space is left (fills width, but never grows
+      // taller than the viewport allows — avoids forcing a page scroll).
+      let displayWidth = availW;
+      let displayHeight = displayWidth / aspect;
+      if (displayHeight > availH) {
+        displayHeight = availH;
+        displayWidth = displayHeight * aspect;
+      }
+      displayWidth = Math.round(displayWidth);
+      displayHeight = Math.round(displayHeight);
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const pixelWidth = Math.round(displayWidth * dpr);
+      const pixelHeight = Math.round(displayHeight * dpr);
+      canvas.style.width = `${displayWidth}px`;
+      canvas.style.height = `${displayHeight}px`;
+      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+      scaleRef.current = canvas.width / CW;
+    }
+
+    resizeCanvas();
+    const ro = new ResizeObserver(resizeCanvas);
+    if (wrapRef.current) ro.observe(wrapRef.current);
+    window.addEventListener("resize", resizeCanvas);
+
     function loop(ts) {
       const g = gs.current;
       const raw = ts - (lastTs.current || ts);
@@ -509,7 +551,11 @@ export default function TowerDefense() {
     }
 
     rafId.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId.current);
+    return () => {
+      cancelAnimationFrame(rafId.current);
+      ro.disconnect();
+      window.removeEventListener("resize", resizeCanvas);
+    };
   }, []); // eslint-disable-line
 
   // Keyboard shortcuts
@@ -649,16 +695,18 @@ export default function TowerDefense() {
   return (
     <div style={{
       background: "#050d06",
-      minHeight: "100vh",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      padding: "10px 8px 16px",
+      height: "100vh",
+      overflow: "auto",
+      display: "flex", flexDirection: "column", alignItems: "stretch",
+      padding: "10px 20px 16px",
+      boxSizing: "border-box",
       fontFamily: "'Courier New', monospace",
       color: "#e2e8f0",
       gap: "8px",
     }}>
 
       {/* ── TOP STATS BAR ── */}
-      <div style={{ display:"flex", gap:"10px", alignItems:"center", flexWrap:"wrap", justifyContent:"center" }}>
+      <div style={{ display:"flex", gap:"10px", alignItems:"center", flexWrap:"wrap", justifyContent:"center", flexShrink:0 }}>
         {/* Stats panel */}
         <div style={{
           background: "#0a1a0b", border: "1px solid #1e3a20",
@@ -684,6 +732,10 @@ export default function TowerDefense() {
       </div>
 
       {/* ── CANVAS ── */}
+      <div ref={wrapRef} style={{
+        flex:"1 1 auto", minHeight:0, minWidth:0,
+        display:"flex", alignItems:"center", justifyContent:"center",
+      }}>
       <div style={{ position:"relative", lineHeight:0 }}>
         <canvas
           ref={cvs}
@@ -695,7 +747,6 @@ export default function TowerDefense() {
             display: "block", borderRadius: "8px",
             border: "1px solid #1e3a20",
             cursor: sel?.kind==="place" ? "crosshair" : "pointer",
-            maxWidth: "100%",
           }}
         />
 
@@ -725,9 +776,10 @@ export default function TowerDefense() {
           </div>
         )}
       </div>
+      </div>
 
       {/* ── BOTTOM TOOLBAR ── */}
-      <div style={{ display:"flex", gap:"8px", flexWrap:"wrap", justifyContent:"center", alignItems:"flex-start" }}>
+      <div style={{ display:"flex", gap:"8px", flexWrap:"wrap", justifyContent:"center", alignItems:"flex-start", flexShrink:0 }}>
 
         {/* Tower shop */}
         <Panel title="BUILD TOWERS">
@@ -834,7 +886,7 @@ export default function TowerDefense() {
       </div>
 
       {/* ── LEGEND ── */}
-      <div style={{ display:"flex", gap:"14px", fontSize:"10px", color:"#334155", flexWrap:"wrap", justifyContent:"center", marginTop:"2px" }}>
+      <div style={{ display:"flex", gap:"14px", fontSize:"10px", color:"#334155", flexWrap:"wrap", justifyContent:"center", marginTop:"2px", flexShrink:0 }}>
         {Object.entries(ENEMIES).map(([type, d]) => (
           <div key={type} style={{ display:"flex", alignItems:"center", gap:"4px" }}>
             <div style={{ width:9, height:9, borderRadius:"50%", background:d.color, flexShrink:0 }}/>
